@@ -62,15 +62,15 @@ func main() {
 	mux.HandleFunc("/like-post", makeHandler(RebootForums.LikePostHandler))
 	mux.HandleFunc("/like-comment", makeHandler(RebootForums.LikeCommentHandler))
 	mux.HandleFunc("/add-comment", makeHandler(RebootForums.AddCommentHandler))
-	// Explicit error routes
-	mux.HandleFunc("/400", RebootForums.Error400Handler)
-	mux.HandleFunc("/404", RebootForums.Error404Handler)
-	mux.HandleFunc("/500", RebootForums.Error500Handler)
-	// Google and Github login handlers
+	// Google and Github login Routes
 	mux.HandleFunc("/auth/google/login", RebootForums.GoogleLoginHandler)
 	mux.HandleFunc("/auth/google/callback", RebootForums.GoogleCallbackHandler)
 	mux.HandleFunc("/auth/github/login", RebootForums.GithubLoginHandler)
 	mux.HandleFunc("/auth/github/callback", RebootForums.GithubCallbackHandler)
+	// Explicit error routes
+	mux.HandleFunc("/400", RebootForums.Error400Handler)
+	mux.HandleFunc("/404", RebootForums.Error404Handler)
+	mux.HandleFunc("/500", RebootForums.Error500Handler)
 
 	// Serve static files
 	fs := http.FileServer(http.Dir("./static"))

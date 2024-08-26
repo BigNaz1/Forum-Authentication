@@ -9,6 +9,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -123,10 +124,11 @@ func RegisterHandler(w http.ResponseWriter, r *http.Request) {
 func LoginHandler(w http.ResponseWriter, r *http.Request) {
 	if r.Method == "GET" {
 		message := ""
+		error := false
 		if r.URL.Query().Get("registered") == "true" {
 			message = "Registration successful. Please log in."
 		}
-		RenderTemplate(w, "login.html", map[string]interface{}{"Message": message})
+		RenderTemplate(w, "login.html", map[string]interface{}{"Message": message, "Error": error})
 		return
 	}
 
@@ -135,7 +137,10 @@ func LoginHandler(w http.ResponseWriter, r *http.Request) {
 		password := r.FormValue("password")
 
 		if username == "" || password == "" {
-			RenderTemplate(w, "login.html", map[string]interface{}{"Message": "Username and password are required"})
+			RenderTemplate(w, "login.html", map[string]interface{}{
+				"Message": "Username and password are required",
+				"Error":   true,
+			})
 			return
 		}
 
@@ -144,16 +149,25 @@ func LoginHandler(w http.ResponseWriter, r *http.Request) {
 		err := DB.QueryRow("SELECT id, username, password FROM users WHERE username = ?", username).Scan(&user.ID, &user.Username, &hashedPassword)
 		if err != nil {
 			if err == sql.ErrNoRows {
-				RenderTemplate(w, "login.html", map[string]interface{}{"Message": "Invalid username or password"})
+				RenderTemplate(w, "login.html", map[string]interface{}{
+					"Message": "Invalid username or password",
+					"Error":   true,
+				})
 			} else {
 				log.Printf("Database error during login: %v", err)
-				RenderTemplate(w, "login.html", map[string]interface{}{"Message": "An error occurred. Please try again later."})
+				RenderTemplate(w, "login.html", map[string]interface{}{
+					"Message": "An error occurred. Please try again later.",
+					"Error":   true,
+				})
 			}
 			return
 		}
 
 		if err := bcrypt.CompareHashAndPassword([]byte(hashedPassword), []byte(password)); err != nil {
-			RenderTemplate(w, "login.html", map[string]interface{}{"Message": "Invalid username or password"})
+			RenderTemplate(w, "login.html", map[string]interface{}{
+				"Message": "Invalid username or password",
+				"Error":   true,
+			})
 			return
 		}
 
@@ -161,14 +175,20 @@ func LoginHandler(w http.ResponseWriter, r *http.Request) {
 		_, err = DB.Exec("DELETE FROM sessions WHERE user_id = ?", user.ID)
 		if err != nil {
 			log.Printf("Error deleting existing sessions: %v", err)
-			RenderTemplate(w, "login.html", map[string]interface{}{"Message": "An error occurred. Please try again later."})
+			RenderTemplate(w, "login.html", map[string]interface{}{
+				"Message": "An error occurred. Please try again later.",
+				"Error":   true,
+			})
 			return
 		}
 
 		sessionToken, err := generateSessionToken()
 		if err != nil {
 			log.Printf("Error generating session token: %v", err)
-			RenderTemplate(w, "login.html", map[string]interface{}{"Message": "An error occurred. Please try again later."})
+			RenderTemplate(w, "login.html", map[string]interface{}{
+				"Message": "An error occurred. Please try again later.",
+				"Error":   true,
+			})
 			return
 		}
 
@@ -176,7 +196,10 @@ func LoginHandler(w http.ResponseWriter, r *http.Request) {
 		err = UpsertSession(&user.ID, sessionToken, expiryTime, false)
 		if err != nil {
 			log.Printf("Error creating session: %v", err)
-			RenderTemplate(w, "login.html", map[string]interface{}{"Message": "An error occurred. Please try again later."})
+			RenderTemplate(w, "login.html", map[string]interface{}{
+				"Message": "An error occurred. Please try again later.",
+				"Error":   true,
+			})
 			return
 		}
 
@@ -292,13 +315,17 @@ func GoogleCallbackHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func GithubLoginHandler(w http.ResponseWriter, r *http.Request) {
+	log.Println("GitHub login handler called")
 	url := githubOauthConfig.AuthCodeURL(oauthStateString)
+	log.Printf("Redirecting to GitHub OAuth URL: %s", url)
 	http.Redirect(w, r, url, http.StatusTemporaryRedirect)
 }
 
 func GithubCallbackHandler(w http.ResponseWriter, r *http.Request) {
+	log.Println("GitHub callback handler called")
+
 	if r.FormValue("state") != oauthStateString {
-		log.Printf("Invalid oauth state")
+		log.Printf("Invalid oauth state, expected %s, got %s", oauthStateString, r.FormValue("state"))
 		http.Redirect(w, r, "/", http.StatusTemporaryRedirect)
 		return
 	}
@@ -326,6 +353,8 @@ func GithubCallbackHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	log.Printf("GitHub API response: %s", string(contents))
+
 	var userInfo struct {
 		Email string `json:"email"`
 		Name  string `json:"name"`
@@ -339,6 +368,7 @@ func GithubCallbackHandler(w http.ResponseWriter, r *http.Request) {
 
 	// If email is not public, fetch it separately
 	if userInfo.Email == "" {
+		log.Println("Email not found in initial response, fetching emails separately")
 		emailResponse, err := client.Get("https://api.github.com/user/emails")
 		if err != nil {
 			log.Printf("Failed getting user emails: %s", err.Error())
@@ -361,6 +391,7 @@ func GithubCallbackHandler(w http.ResponseWriter, r *http.Request) {
 		for _, email := range emails {
 			if email.Primary && email.Verified {
 				userInfo.Email = email.Email
+				log.Printf("Found primary verified email: %s", userInfo.Email)
 				break
 			}
 		}
@@ -372,7 +403,8 @@ func GithubCallbackHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	user, err := GetOrCreateUser(userInfo.Email, userInfo.Name, "github")
+	log.Printf("Creating user with email: %s and login: %s", userInfo.Email, userInfo.Login)
+	user, err := GetOrCreateUser(userInfo.Email, userInfo.Login, "github")
 	if err != nil {
 		log.Printf("Failed to get or create user: %s", err.Error())
 		http.Redirect(w, r, "/", http.StatusTemporaryRedirect)
@@ -387,7 +419,7 @@ func GetOrCreateUser(email, name, provider string) (*User, error) {
 	err := DB.QueryRow("SELECT id, username, email FROM users WHERE email = ?", email).Scan(&user.ID, &user.Username, &user.Email)
 	if err == sql.ErrNoRows {
 		// User doesn't exist, create a new one
-		username := generateUsername(name, provider)
+		username := generateUsername(email, name, provider)
 		result, err := DB.Exec("INSERT INTO users (username, email, password) VALUES (?, ?, ?)", username, email, "")
 		if err != nil {
 			return nil, fmt.Errorf("failed to create user: %v", err)
@@ -408,22 +440,30 @@ func GetOrCreateUser(email, name, provider string) (*User, error) {
 	return &user, nil
 }
 
-func generateUsername(name, provider string) string {
-	base := fmt.Sprintf("%s_%s", name, provider)
-	username := base
+func generateUsername(email, name, provider string) string {
+	var username string
+	if provider == "github" {
+		username = "GIT_" + name
+	} else if provider == "google" {
+		parts := strings.Split(email, "@")
+		username = "GO_" + strings.Split(parts[0], ".")[0]
+	}
+
+	// Ensure the username is unique
+	baseUsername := username
 	suffix := 1
 	for {
 		var exists bool
 		err := DB.QueryRow("SELECT EXISTS(SELECT 1 FROM users WHERE username = ?)", username).Scan(&exists)
 		if err != nil {
 			log.Printf("Error checking username existence: %v", err)
-			return fmt.Sprintf("%s_%s", base, uuid.New().String())
+			return fmt.Sprintf("%s_%s", baseUsername, uuid.New().String())
 		}
 		if !exists {
 			return username
 		}
 		suffix++
-		username = fmt.Sprintf("%s_%d", base, suffix)
+		username = fmt.Sprintf("%s%d", baseUsername, suffix)
 	}
 }
 

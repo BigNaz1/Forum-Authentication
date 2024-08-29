@@ -281,6 +281,75 @@ When using Docker, be aware that the SQLite database file is created inside the 
 - **Filtering**: Users can filter posts by categories. Registered users can also filter by their created posts or liked posts.
 - **User Profiles**: Each user has a profile showcasing their posts and activity.
 
+## Authentication
+
+RebootForums supports multiple authentication methods to provide flexibility for users and enhance security. The following authentication options are available:
+
+### Local Authentication
+
+Users can create an account directly on the forum using a username, email, and password. 
+
+- Passwords are securely hashed using bcrypt before storage.
+- Email verification is required to activate the account (if implemented).
+
+### OAuth2 Authentication
+
+In addition to local authentication, RebootForums supports OAuth2 authentication with the following providers:
+
+1. **Google**
+2. **GitHub**
+
+These methods allow users to sign in using their existing accounts from these platforms.
+
+### Setting Up OAuth2 Authentication
+
+To enable OAuth2 authentication, you need to set up applications with Google and GitHub and obtain the necessary credentials.
+
+#### Google OAuth2 Setup
+
+1. Go to the [Google Cloud Console](https://console.cloud.google.com/).
+2. Create a new project or select an existing one.
+3. Navigate to "APIs & Services" > "Credentials".
+4. Click "Create Credentials" and select "OAuth client ID".
+5. Set the application type to "Web application".
+6. Add `http://localhost:8080/auth/google/callback` to the authorized redirect URIs.
+7. Note down the Client ID and Client Secret.
+
+#### GitHub OAuth2 Setup
+
+1. Go to [GitHub Developer Settings](https://github.com/settings/developers).
+2. Click on "New OAuth App".
+3. Fill in the application details.
+4. Set the authorization callback URL to `http://localhost:8080/auth/github/callback`.
+5. Note down the Client ID and Client Secret.
+
+### Configuration
+
+Set the following environment variables with your OAuth credentials:
+
+```
+GOOGLE_CLIENT_ID=your_google_client_id
+GOOGLE_CLIENT_SECRET=your_google_client_secret
+GITHUB_CLIENT_ID=your_github_client_id
+GITHUB_CLIENT_SECRET=your_github_client_secret
+```
+
+### Security Considerations
+
+- All authentication methods use HTTPS to encrypt data in transit.
+- OAuth2 state parameters are validated to prevent CSRF attacks.
+- Access tokens are stored securely and refreshed as needed.
+- Sessions are managed using secure, HTTP-only cookies.
+- Failed login attempts are rate-limited to prevent brute-force attacks.
+
+### User Sessions
+
+- User sessions are maintained using secure session tokens.
+- Sessions expire after a period of inactivity (default: 24 hours).
+- Users can log out to invalidate their session.
+
+For any issues or additional security measures, please open an issue or submit a pull request.
+
 ## License
 
 This project is developed by:
